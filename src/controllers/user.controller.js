@@ -3,6 +3,7 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import { User } from '../models/user.models.js';
 import uploadOnCloudinary from '../utils/claudinary.js';
+import jwt from "jsonwebtoken"
 
 
 const generateAccessAndRefreshToken = async(userId)=>{
@@ -16,13 +17,14 @@ const generateAccessAndRefreshToken = async(userId)=>{
         return {accessToken, refreshToken}
         
     } catch (error) {
-        throw new ApiError(500, "Something went wrong while generating tokens")
+        throw new ApiError(500, error?.message || "Something went wrong while generating tokens")
     }
 }
 
 const options = {
         httpOnly: true,
-        secure: true
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax"
     }
 const registerUser = asyncHandler(async (req, res) => {
   /* 
@@ -133,8 +135,8 @@ const loginUser = asyncHandler(async(req , res) =>{
     }
 
 // check  if the username or email exists in database
-    const user =   await User.findOne({
-        $or: [{username , password}]
+    const user =  await User.findOne({
+        $or: [{username} , {email}]
     })
     if(!user){
         throw new ApiError(404, "Username or Email is not registered.")
@@ -159,7 +161,7 @@ const loginUser = asyncHandler(async(req , res) =>{
     .json(
         new ApiResponse(
         200,
-        {user: accessToken,refreshToken,LoggedInUser},
+        {user:LoggedInUser},
         "user logged In seccessfully."
 
     ))
@@ -185,7 +187,7 @@ const logoutUser = asyncHandler(async(req , res) =>{
         }
     )
 
-    res
+    return res
     .status(200)
     .clearCookie("accessToken", options)
     .clearCookie("refreshToken", options)
@@ -196,4 +198,45 @@ const logoutUser = asyncHandler(async(req , res) =>{
 
 })
 
-export { registerUser, loginUser, logoutUser };
+const refreshAccessToken = asyncHandler(async(req, res) => {
+    /*
+    get the referesh token from cookie , 
+    verify this with jwt verify
+    find user by this ,if user found
+    match the decoded token with original referes token 
+    if matched , then regerate this using the method 
+    then send response.
+    */
+
+    const incomingToken =  req.cookies?.refreshToken || req.body?.refreshToken
+
+    if(!incomingToken){
+        throw new ApiError( 400, "unauthrized request")
+    }
+
+    const decodedToken =  jwt.verify(incomingToken, process.env.REFRESH_TOKEN_SECRET)
+
+    if(!decodedToken){
+        throw new ApiError(400, "invalid token")
+    }
+
+    const user = await User.findById(decodedToken?._id)
+
+    if(!user){
+        throw new ApiError(401, "invalid referesh token")
+    }
+    if(incomingToken !== user.refreshToken){
+        throw new ApiError(401, "Refresh token is either expired or used.")
+    }
+
+    const {accessToken, refreshToken: newRefreshToken} = await generateAccessAndRefreshToken(user._id)
+
+    return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", newRefreshToken, options)
+    .json(new ApiResponse(200, { accessToken, refreshToken: newRefreshToken }, "Access Token Refreshed!"))
+
+})
+
+export { registerUser, loginUser, logoutUser, refreshAccessToken };

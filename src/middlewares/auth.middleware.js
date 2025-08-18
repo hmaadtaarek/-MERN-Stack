@@ -1,17 +1,18 @@
-import { JsonWebTokenError } from "jsonwebtoken";
-import ApiError from "../utils/ApiError";
-import asyncHandler from "../utils/asynchandler";
+
+import ApiError from "../utils/ApiError.js";
+import asyncHandler from "../utils/asynchandler.js";
 import jwt from "jsonwebtoken"
-import { User } from "../models/user.models";
+import { User } from "../models/user.models.js";
 
 export const verifyJWT = asyncHandler(async(req, res , next) => {
 
     try {
+        
 
-        const token  = req.cookies?.accessToken || req.headers("authorization")?.replace("Bearer ","")
+        const token  = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ","")
 
         if(!token ){
-            throw new ApiError(400, "unauthorized Request")
+            throw new ApiError(400, "Unauthorized request. No token provided.")
         }
         const decoded  = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
 
